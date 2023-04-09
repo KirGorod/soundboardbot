@@ -7,6 +7,7 @@ from soundboardbot.bot import bot
 from soundboardbot.constants import TOKEN, PlaySound, sounds
 
 app = FastAPI()
+bot = bot
 
 
 async def run():
@@ -14,6 +15,18 @@ async def run():
         await bot.start(TOKEN)
     except Exception as e:
         print(e)
+        
+        
+def play_sound(voice_client, source, volume):
+    try:
+        voice_client.play(source)
+        voice_client.source.volume = volume
+    except errors.ClientException as e:
+        print(e)
+        voice_client.stop()
+        voice_client.play(source)
+        voice_client.source.volume = volume
+
 
 @app.on_event('startup')
 async def startup():
@@ -21,12 +34,9 @@ async def startup():
 
 
 @app.post('/')
-async def play_sound(body: PlaySound):
+async def play_sound_cmd(body: PlaySound):
     try:
-        # guild = bot.get_guild(body.guild_id)
-        # member = guild.get_member(body.user_id)
-        member = bot.get_user(body.user_id)
-        bot_obj = bot
+        user = bot.get_user(body.user_id)
     except Exception as e:
         print(e)
         return Response(status_code=status.HTTP_400_BAD_REQUEST)
@@ -39,33 +49,38 @@ async def play_sound(body: PlaySound):
     source = discord.PCMVolumeTransformer(source)
     source.volume = volume
     
-    for guild in bot.guilds:
-        member = guild.get_member(body.user_id)
-        if member:
-            break
-    
+    for guild in user.mutual_guilds:
+        for channel in guild.voice_channels:
+            for channel_member in channel.members:
+                if channel_member.id == user.id:
+                    member = channel_member
+                    break
+
     if not member:
         return Response(content='No member found', status_code=status.HTTP_400_BAD_REQUEST)
         
-    user_voice_channel = member.voice.channel
-    if not user_voice_channel:
-        return Response(content='No voice channel', status_code=status.HTTP_400_BAD_REQUEST)
-    
+    if member.voice:
+        user_voice_channel = member.voice.channel
+    else:
+        return Response(content='Member not found in any channel', status_code=status.HTTP_400_BAD_REQUEST)
+  
     voice_client = None
-    for client in bot.voice_clients:
-        if client.channel == user_voice_channel:
-            voice_client = client
-            break
-
-    if not voice_client:
+    if not bot.voice_clients:
         voice_client = await user_voice_channel.connect()
 
     try:
-        voice_client.play(source)
-        voice_client.source.volume = volume
-    except errors.ClientException:
-        voice_client.stop()
-        voice_client.play(source)
-        voice_client.source.volume = volume
-    
+        voice_client = await user_voice_channel.connect()
+        play_sound(voice_client, source, volume)
+    except errors.ClientException as e:
+        print(e)
+        for client in bot.voice_clients:
+            if client.guild == member.guild:
+                voice_client = client
+                break
+
+        if voice_client.channel != user_voice_channel:
+            await voice_client.disconnect()
+            await user_voice_channel.connect()
+        play_sound(voice_client, source, volume)
+            
     return Response(status_code=status.HTTP_200_OK)
