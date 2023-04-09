@@ -25,9 +25,18 @@ class PlaySound(BaseModel):
 
 
 sounds = {
-    'iwo': 'iwo.mp3',
-    'horn': 'horn.mp3',
-    'airhorn': 'airhorn.mp3'
+    'iwo': {
+        'file': 'iwo.mp3',
+        'volume': 1
+    },
+    'horn': {
+        'file': 'horn.mp3',
+        'volume': 1    
+    },
+    'airhorn': {
+        'file': 'airhorn.mp3',
+        'volume': 0.1
+    }
 }
 
 
@@ -38,34 +47,52 @@ async def startup():
 
 @app.post('/')
 async def play_sound(body: PlaySound):
-    guild = bot.get_guild(body.guild_id)
-    member = guild.get_member(body.user_id)
+    try:
+        # guild = bot.get_guild(body.guild_id)
+        # member = guild.get_member(body.user_id)
+        member = bot.get_user(body.user_id)
+        bot_obj = bot
+    except Exception as e:
+        print(e)
+        return Response(status_code=status.HTTP_400_BAD_REQUEST)
     if not body.sound:
         return
-    source = discord.FFmpegPCMAudio(f'./sounds/{sounds.get(body.sound)}')
-    
-    if member.voice:
-        if not bot.voice_clients:
-            voice_client = await member.voice.channel.connect()
-        for client in bot.voice_clients:
-            if client.guild.id == guild.id:
-                if client.channel != member.voice.channel:
-                    await client.disconnect()
-                    voice_client = await member.voice.channel.connect()
-                else:
-                    voice_client = client
-                break
 
-        try:
-            voice_client.play(source)
-        except errors.ClientException:
-            voice_client.stop()
-            voice_client.play(source)
+    file_name = sounds.get(body.sound).get('file')
+    volume = sounds.get(body.sound).get('volume')
+    source = discord.FFmpegPCMAudio(f'./sounds/{file_name}')
+    
+    for guild in bot.guilds:
+        member = guild.get_member(body.user_id)
+        if member:
+            break
+    
+    if not member:
+        return Response(content='No member found', status_code=status.HTTP_400_BAD_REQUEST)
         
-        return Response(status_code=status.HTTP_200_OK)
+    user_voice_channel = member.voice.channel
+    if not user_voice_channel:
+        return Response(content='No voice channel', status_code=status.HTTP_400_BAD_REQUEST)
     
-    return Response(status_code=status.HTTP_400_BAD_REQUEST)
+    voice_client = None
+    for client in bot.voice_clients:
+        if client.channel == user_voice_channel:
+            voice_client = client
+            break
 
+    if not voice_client:
+        voice_client = await user_voice_channel.connect()
+
+    try:
+        voice_client.play(source)
+        voice_client.source.volume = volume
+    except errors.ClientException:
+        voice_client.stop()
+        voice_client.play(source)
+        voice_client.source.volume = volume
+    
+    return Response(status_code=status.HTTP_200_OK)
+    
 
 @bot.event
 async def on_ready():
@@ -75,7 +102,7 @@ async def on_ready():
 @bot.command(name='ping')
 async def ping(ctx):
     await ctx.send('pong')
-
+9
 
 @bot.command(name='join')
 async def join(ctx):
