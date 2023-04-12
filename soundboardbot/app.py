@@ -44,6 +44,9 @@ async def play_sound_cmd(body: PlaySound):
         return
 
     file_name = sounds.get(body.sound).get('file')
+    if file_name is None:
+        return Response(content='No sound found', status_code=status.HTTP_400_BAD_REQUEST)
+
     volume = sounds.get(body.sound).get('volume')
     source = discord.FFmpegPCMAudio(f'./sounds/{file_name}')
     source = discord.PCMVolumeTransformer(source)
